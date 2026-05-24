@@ -124,7 +124,10 @@ fn save_and_export(db: &Database, app_config: &AppConfig) {
 // Interactive key generation / known_hosts flows → see `key_flows` submodule.
 
 pub mod key_flows;
-use key_flows::{run_generate_key_flow, run_known_hosts_clean_flow};
+use key_flows::run_known_hosts_clean_flow;
+
+pub mod keygen_form;
+use keygen_form::run_keygen_form;
 
 pub mod fanout;
 
@@ -1424,27 +1427,22 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                                     toast = Some(Toast::success(t!("toast.keys_refreshed")));
                                 }
                                 IdentitiesAction::Generate => {
+                                    // Native TUI modal — we have to let go of
+                                    // the parent alt-screen so the modal's own
+                                    // alt-screen can take over cleanly.
                                     let _ = disable_raw_mode();
                                     let _ = execute!(stdout(), LeaveAlternateScreen);
-                                    match run_generate_key_flow() {
-                                        Ok(Some(path)) => {
-                                            identities_state.refresh();
-                                            toast = Some(Toast::success(t!(
-                                                "toast.generated_key",
-                                                "path" => path.display()
-                                            )));
-                                        }
-                                        Ok(None) => {}
-                                        Err(e) => {
-                                            toast = Some(Toast::error(t!(
-                                                "toast.generate_failed",
-                                                "error" => e
-                                            )));
-                                        }
-                                    }
+                                    let path = run_keygen_form();
                                     let _ = enable_raw_mode();
                                     let _ = execute!(stdout(), EnterAlternateScreen);
                                     let _ = terminal.clear();
+                                    if let Some(path) = path {
+                                        identities_state.refresh();
+                                        toast = Some(Toast::success(t!(
+                                            "toast.generated_key",
+                                            "path" => path.display()
+                                        )));
+                                    }
                                 }
                                 IdentitiesAction::Push => {
                                     if let Some(k) = identities_state.selected_key() {
