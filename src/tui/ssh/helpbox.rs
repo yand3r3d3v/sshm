@@ -32,10 +32,10 @@ pub enum HelpContext {
 fn help_text_for(ctx: HelpContext) -> &'static str {
     match ctx {
         HelpContext::HostNav => {
-            "↑↓ move │ h help │ Enter connect │ o new-term │ / filter │ a add │ e edit │ y clone │ d delete │ Space select │ X run-cmd │ c check │ p forward │ t tunnels │ i identity │ f fav │ s sort │ q quit"
+            "↑↓ move │ ? help │ Enter connect │ o new-term │ / filter │ a add │ e edit │ y clone │ d delete │ Space select │ X run-cmd │ c check │ p forward │ t tunnels │ i identity │ f fav │ s sort │ q quit"
         }
         HelpContext::FolderNav => {
-            "↑↓ move │ h help │ Enter expand/collapse │ / filter │ a add │ r rename │ d delete │ t tunnels │ q quit"
+            "↑↓ move │ ? help │ Enter expand/collapse │ / filter │ a add │ r rename │ d delete │ t tunnels │ q quit"
         }
         HelpContext::FilterMode => {
             "Type to filter (fuzzy) │ Esc clear │ Enter confirm"
@@ -44,34 +44,34 @@ fn help_text_for(ctx: HelpContext) -> &'static str {
             "←→ select │ Enter confirm │ Esc cancel"
         }
         HelpContext::SettingsTab => {
-            "↑↓ navigate │ h help │ Type to edit │ Enter save │ ←→ tab │ Esc reset"
+            "↑↓ navigate │ ? help │ Type to edit │ Enter save │ ←→/h/l tab │ Esc reset"
         }
         HelpContext::ThemeTab => {
-            "↑↓ navigate │ h help │ Enter apply/save │ ←→ tab │ Esc reset"
+            "↑↓ navigate │ ? help │ Enter apply/save │ ←→/h/l tab │ Esc reset"
         }
         HelpContext::HelpTab => {
-            "↑↓ scroll │ h help │ PageUp/PageDn fast scroll │ Home top │ ←→ tab │ q quit"
+            "↑↓ scroll │ ? help │ PageUp/PageDn fast scroll │ Home top │ ←→/h/l tab │ q quit"
         }
         HelpContext::IdentitiesTab => {
-            "↑↓ move │ h help │ / filter │ g generate │ p push │ a agent-add │ x agent-del │ K known-hosts │ r refresh │ ←→ tab │ q quit"
+            "↑↓ move │ ? help │ / filter │ g generate │ p push │ a agent-add │ x agent-del │ K known-hosts │ r refresh │ ←→/h/l tab │ q quit"
         }
         HelpContext::KlusterHeaderRuntime => {
-            "↑↓ move │ h help │ Enter expand/collapse │ / filter │ r refresh │ n add cluster │ ←→ tab │ q quit"
+            "↑↓ move │ ? help │ Enter expand/collapse │ / filter │ r refresh │ n add cluster │ ←→/h/l tab │ q quit"
         }
         HelpContext::KlusterHeaderCluster => {
-            "↑↓ move │ h help │ Enter expand/collapse │ / filter │ r refresh │ n add │ e edit │ d delete │ ←→ tab │ q quit"
+            "↑↓ move │ ? help │ Enter expand/collapse │ / filter │ r refresh │ n add │ e edit │ d delete │ ←→/h/l tab │ q quit"
         }
         HelpContext::KlusterHeaderDockerRemote => {
-            "↑↓ move │ h help │ Enter expand/collapse │ / filter │ r refresh │ n add docker remote │ d unlink │ ←→ tab │ q quit"
+            "↑↓ move │ ? help │ Enter expand/collapse │ / filter │ r refresh │ n add docker remote │ d unlink │ ←→/h/l tab │ q quit"
         }
         HelpContext::KlusterItem => {
-            "↑↓ move │ h help │ Enter shell │ l logs(-f) │ s start/stop │ R restart │ / filter │ r refresh │ ←→ tab │ q quit"
+            "↑↓ move │ ? help │ Enter shell │ L logs(-f) │ s start/stop │ R restart │ / filter │ r refresh │ ←→/h/l tab │ q quit"
         }
         HelpContext::KlusterTerminalPod => {
-            "↑↓ move │ h help │ Enter shell │ l logs(-f) │ / filter │ d delete pod │ r refresh │ ←→ tab │ q quit"
+            "↑↓ move │ ? help │ Enter shell │ L logs(-f) │ / filter │ d delete pod │ r refresh │ ←→/h/l tab │ q quit"
         }
         HelpContext::Empty => {
-            "a add host │ h help │ q quit │ ←→ tab"
+            "a add host │ ? help │ q quit │ ←→/h/l tab"
         }
     }
 }
@@ -134,7 +134,7 @@ pub fn draw_help_popup(f: &mut Frame, ctx: HelpContext, theme: &Theme) {
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "  Esc / h      close this popup",
+        "  Esc / ?      close this popup",
         Style::default().fg(theme.muted),
     )));
 

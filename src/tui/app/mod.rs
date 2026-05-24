@@ -562,7 +562,7 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
 
                     // --- Help popup: modal, swallows every keystroke ---
                     if help_popup {
-                        if matches!(k.code, KeyCode::Esc | KeyCode::Char('h')) {
+                        if matches!(k.code, KeyCode::Esc | KeyCode::Char('?')) {
                             help_popup = false;
                         }
                         continue;
@@ -624,9 +624,9 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
 
                     if tab_nav_allowed {
                         match k.code {
-                            KeyCode::Right => { active_tab = active_tab.next(); continue; }
-                            KeyCode::Left => { active_tab = active_tab.prev(); continue; }
-                            KeyCode::Char('h') => { help_popup = true; continue; }
+                            KeyCode::Right | KeyCode::Char('l') => { active_tab = active_tab.next(); continue; }
+                            KeyCode::Left | KeyCode::Char('h') => { active_tab = active_tab.prev(); continue; }
+                            KeyCode::Char('?') => { help_popup = true; continue; }
                             KeyCode::Char('t') => {
                                 tunnels_popup = true;
                                 tunnels_popup_sel = 0;

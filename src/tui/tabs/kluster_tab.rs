@@ -530,7 +530,7 @@ pub fn handle_kluster_event(key: KeyCode, state: &mut KlusterTabState) -> Kluste
         }
         // Item-only actions
         KeyCode::Enter if on_item => KlusterAction::OpenShell,
-        KeyCode::Char('l') if on_item => KlusterAction::OpenLogsFollow,
+        KeyCode::Char('L') if on_item => KlusterAction::OpenLogsFollow,
         // `s` toggles start/stop on a Docker/Incus item; `R` restarts it.
         // Both no-op on pods (k8s has no equivalent — use `d` to delete).
         KeyCode::Char('s') if on_item => match lifecycle_running(state) {
