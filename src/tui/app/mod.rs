@@ -4,7 +4,7 @@ use crate::models::{Database, Host};
 use crate::t;
 use crate::util::clear_console;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -146,7 +146,7 @@ use kluster_actions::{
     sync_kluster_targets,
 };
 
-pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
+pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager, pending_toast: &mut Option<Toast>) {
     // Source items
     let mut sort_mode: SortMode = SortMode::Name;
     let mut view_mode: ViewMode = ViewMode::Folders;
@@ -212,8 +212,10 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
     let mut help_state = HelpTabState::new();
     let mut identities_state = IdentitiesTabState::new();
 
-    // Toast notification
-    let mut toast: Option<Toast> = None;
+    // Toast notification — seeded from any pending toast carried over from
+    // the previous `run_tui` iteration (e.g. an ssh launch that failed and
+    // returned us here).
+    let mut toast: Option<Toast> = pending_toast.take();
 
     // Host reachability status (name → status)
     let mut host_status: HashMap<String, HostStatus> = HashMap::new();
@@ -477,7 +479,7 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                         theme_tab::draw_theme_tab(f, vchunks[1], &theme_state, &theme);
                     }
                     ActiveTab::Help => {
-                        help_tab::draw_help_tab(f, vchunks[1], &help_state, &theme);
+                        help_tab::draw_help_tab(f, vchunks[1], &mut help_state, &theme);
                     }
                 }
 
@@ -528,7 +530,9 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                     }
                     ActiveTab::Identities if identities_state.input_mode => HelpContext::FilterMode,
                     ActiveTab::Identities => HelpContext::IdentitiesTab,
+                    ActiveTab::Settings if settings_state.vim_mode.is_normal() => HelpContext::SettingsTabNormal,
                     ActiveTab::Settings => HelpContext::SettingsTab,
+                    ActiveTab::Theme if theme_state.vim_mode.is_normal() => HelpContext::ThemeTabNormal,
                     ActiveTab::Theme => HelpContext::ThemeTab,
                     ActiveTab::Help => HelpContext::HelpTab,
                 };
@@ -574,17 +578,30 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                     // --- Tunnels dashboard: modal, navigate + stop tunnels ---
                     if tunnels_popup {
                         tunnels.reap();
+                        let is_ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
                         match k.code {
                             KeyCode::Esc | KeyCode::Char('t') | KeyCode::Char('q') => {
                                 tunnels_popup = false;
                             }
-                            KeyCode::Up => {
+                            KeyCode::Up | KeyCode::Char('k') => {
                                 tunnels_popup_sel = tunnels_popup_sel.saturating_sub(1);
                             }
-                            KeyCode::Down => {
+                            KeyCode::Down | KeyCode::Char('j') => {
                                 if tunnels_popup_sel + 1 < tunnels.len() {
                                     tunnels_popup_sel += 1;
                                 }
+                            }
+                            KeyCode::Char('G') => {
+                                if !tunnels.is_empty() {
+                                    tunnels_popup_sel = tunnels.len() - 1;
+                                }
+                            }
+                            KeyCode::Char('u') if is_ctrl => {
+                                tunnels_popup_sel = tunnels_popup_sel.saturating_sub(5);
+                            }
+                            KeyCode::Char('d') if is_ctrl => {
+                                tunnels_popup_sel = (tunnels_popup_sel + 5)
+                                    .min(tunnels.len().saturating_sub(1));
                             }
                             KeyCode::Char('d') | KeyCode::Char('x') => {
                                 if tunnels_popup_sel < tunnels.len() {
@@ -625,6 +642,15 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                         ActiveTab::Help => true,
                     };
 
+                    // When a tab form is in vim NORMAL mode, `q` belongs to
+                    // that form (it's vim's "leave normal" shortcut) — don't
+                    // let the global quit-on-q hijack it.
+                    let in_form_normal = match active_tab {
+                        ActiveTab::Settings => settings_state.vim_mode.is_normal(),
+                        ActiveTab::Theme => theme_state.vim_mode.is_normal(),
+                        _ => false,
+                    };
+
                     if tab_nav_allowed {
                         match k.code {
                             KeyCode::Right | KeyCode::Char('l') => { active_tab = active_tab.next(); continue; }
@@ -635,7 +661,7 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                                 tunnels_popup_sel = 0;
                                 continue;
                             }
-                            KeyCode::Char('q') | KeyCode::Char('Q') => { q::press(); }
+                            KeyCode::Char('q') | KeyCode::Char('Q') if !in_form_normal => { q::press(); }
                             _ => {}
                         }
                     }
@@ -646,10 +672,10 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                     // If a delete modal is open, handle only its keys
                     if !matches!(delete_mode, DeleteMode::None) {
                         match k.code {
-                            KeyCode::Left | KeyCode::Up => {
+                            KeyCode::Left | KeyCode::Up | KeyCode::Char('h') | KeyCode::Char('k') => {
                                 delete_button_index = delete_button_index.saturating_sub(1);
                             }
-                            KeyCode::Right | KeyCode::Down | KeyCode::Tab => {
+                            KeyCode::Right | KeyCode::Down | KeyCode::Tab | KeyCode::Char('l') | KeyCode::Char('j') => {
                                 let max = match delete_mode {
                                     DeleteMode::Host { .. } | DeleteMode::EmptyFolder { .. } => 1,
                                     DeleteMode::FolderWithHosts { .. } => 2,
@@ -754,11 +780,18 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                             _ => {}
                         }
                     } else {
+                        let is_ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
                         match k.code {
                             KeyCode::Up => {
                                 selected = selected.saturating_sub(1);
                             }
                             KeyCode::Down => {
+                                selected = selected.saturating_add(1);
+                            }
+                            KeyCode::Char('k') if !input_mode => {
+                                selected = selected.saturating_sub(1);
+                            }
+                            KeyCode::Char('j') if !input_mode => {
                                 selected = selected.saturating_add(1);
                             }
                             KeyCode::PageDown => {
@@ -767,10 +800,21 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                             KeyCode::PageUp => {
                                 selected = selected.saturating_sub(viewport_h);
                             }
+                            KeyCode::Char('d') if is_ctrl => {
+                                selected = selected.saturating_add(viewport_h / 2);
+                            }
+                            KeyCode::Char('u') if is_ctrl => {
+                                selected = selected.saturating_sub(viewport_h / 2);
+                            }
                             KeyCode::Home => {
                                 selected = 0;
                             }
                             KeyCode::End => {
+                                if last_rows_len > 0 {
+                                    selected = last_rows_len - 1;
+                                }
+                            }
+                            KeyCode::Char('G') if !input_mode => {
                                 if last_rows_len > 0 {
                                     selected = last_rows_len - 1;
                                 }
@@ -808,6 +852,7 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                                     input_mode = false;
                                 } else {
                                     let mut launched_host: Option<String> = None;
+                                    let mut launch_err: Option<String> = None;
                                     {
                                         let rows = rows_for(view_mode, db, &items, &filtered, &filter, &collapsed);
                                         if let Some(row) = rows.get(selected) {
@@ -819,7 +864,7 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                                                     let host_clone = (*h).clone();
                                                     let _ = disable_raw_mode();
                                                     let _ = execute!(stdout(), LeaveAlternateScreen);
-                                                    crate::ssh::client::launch_ssh(&host_clone, &db.hosts, None);
+                                                    launch_err = crate::ssh::client::launch_ssh(&host_clone, &db.hosts, None);
                                                     let _ = enable_raw_mode();
                                                     let _ = execute!(stdout(), EnterAlternateScreen);
                                                     clear_console();
@@ -832,10 +877,15 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                                         // Drop borrows into db before mutating.
                                         filtered.clear();
                                         items.clear();
-                                        if let Some(h) = db.hosts.get_mut(&name) {
-                                            record_connection(h);
+                                        if launch_err.is_none() {
+                                            if let Some(h) = db.hosts.get_mut(&name) {
+                                                record_connection(h);
+                                            }
+                                            save_db(db);
                                         }
-                                        save_db(db);
+                                        if let Some(err) = launch_err {
+                                            *pending_toast = Some(Toast::error(t!("toast.ssh_failed", "error" => err)));
+                                        }
                                         return;
                                     }
                                 }
@@ -1275,16 +1325,21 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                                                 if let Some(host_clone) = host_clone {
                                                     let _ = disable_raw_mode();
                                                     let _ = execute!(stdout(), LeaveAlternateScreen);
-                                                    crate::ssh::client::launch_ssh(&host_clone, &db.hosts, None);
+                                                    let launch_err = crate::ssh::client::launch_ssh(&host_clone, &db.hosts, None);
                                                     let _ = enable_raw_mode();
                                                     let _ = execute!(stdout(), EnterAlternateScreen);
                                                     clear_console();
                                                     filtered.clear();
                                                     items.clear();
-                                                    if let Some(h) = db.hosts.get_mut(&host_clone.name) {
-                                                        record_connection(h);
+                                                    if launch_err.is_none() {
+                                                        if let Some(h) = db.hosts.get_mut(&host_clone.name) {
+                                                            record_connection(h);
+                                                        }
+                                                        save_db(db);
                                                     }
-                                                    save_db(db);
+                                                    if let Some(err) = launch_err {
+                                                        *pending_toast = Some(Toast::error(t!("toast.ssh_failed", "error" => err)));
+                                                    }
                                                     return;
                                                 }
                                             } else {
@@ -1530,12 +1585,16 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                         }
 
                         ActiveTab::Settings => {
-                            match k.code {
-                                KeyCode::Esc => {
-                                    settings_state = SettingsFormState::from_config(&app_config);
-                                }
-                                _ => {
-                                    match settings_tab::handle_settings_event(k.code, &mut settings_state) {
+                            // Esc in INSERT enters NORMAL (handled inside
+                            // handle_settings_event). Esc in NORMAL means
+                            // "really cancel" — revert pending edits before
+                            // bouncing back to INSERT.
+                            let want_revert = matches!(k.code, KeyCode::Esc)
+                                && settings_state.vim_mode.is_normal();
+                            if want_revert {
+                                settings_state = SettingsFormState::from_config(&app_config);
+                            } else {
+                                match settings_tab::handle_settings_event(k.code, &mut settings_state) {
                                         SettingsAction::Save => {
                                             match settings_state.default_port.trim().parse::<u16>() {
                                                 Ok(port) => {
@@ -1582,17 +1641,16 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                                         }
                                         SettingsAction::None => {}
                                     }
-                                }
                             }
                         }
 
                         ActiveTab::Theme => {
-                            match k.code {
-                                KeyCode::Esc => {
-                                    theme_state = ThemeTabState::new();
-                                }
-                                _ => {
-                                    match theme_tab::handle_theme_event(k.code, &mut theme_state) {
+                            let want_revert = matches!(k.code, KeyCode::Esc)
+                                && theme_state.vim_mode.is_normal();
+                            if want_revert {
+                                theme_state = ThemeTabState::new();
+                            } else {
+                                match theme_tab::handle_theme_event(k.code, &mut theme_state) {
                                         ThemeAction::ApplyPreset(idx) => {
                                             let preset = &theme::PRESETS[idx];
                                             // A preset defines a solid background, so it
@@ -1628,7 +1686,6 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                                         }
                                         ThemeAction::None => {}
                                     }
-                                }
                             }
                         }
 
@@ -1653,13 +1710,20 @@ fn draw_folder_form(f: &mut Frame, state: &FolderFormState) {
     let fg = theme.fg;
     let accent = theme.accent;
 
+    let mode_style = if state.vim_mode.is_normal() {
+        Style::default().fg(bg).bg(accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.muted)
+    };
+    let title = Line::from(vec![
+        Span::styled(
+            "Rename folder  ",
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format!(" {} ", state.vim_mode.label()), mode_style),
+    ]);
     let block = Block::default()
-        .title(
-            Span::styled(
-                "Rename folder",
-                Style::default().fg(accent).add_modifier(Modifier::BOLD),
-            ),
-        )
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(accent))
         .style(Style::default().bg(bg).fg(fg));
@@ -1769,6 +1833,33 @@ fn run_folder_rename_form(db: &mut Database, folder_name: &str) {
         if event::poll(Duration::from_millis(120)).unwrap_or(false) {
             if let Ok(Event::Key(k)) = event::read() {
                 if k.kind == KeyEventKind::Press {
+                    use crate::tui::vim_mode::{classify_modal_key, ModalIntent, VimMode};
+                    let intent = classify_modal_key(state.vim_mode, k.code, &mut state.pending_g);
+                    let mut consumed = true;
+                    match intent {
+                        ModalIntent::EnterNormal => state.vim_mode = VimMode::Normal,
+                        ModalIntent::EnterInsert => {
+                            if matches!(k.code, KeyCode::Enter)
+                                && state.selected_field == FolderFormState::fields_count()
+                            {
+                                match apply_folder_form(db, &mut state) {
+                                    Ok(_) => break,
+                                    Err(e) => state.error = Some(e),
+                                }
+                            } else {
+                                state.vim_mode = VimMode::Insert;
+                            }
+                        }
+                        ModalIntent::NavDown => state.next_field(),
+                        ModalIntent::NavUp => state.prev_field(),
+                        ModalIntent::NavTop | ModalIntent::NavHome => state.selected_field = 0,
+                        ModalIntent::NavBottom => state.selected_field = FolderFormState::fields_count(),
+                        ModalIntent::LeaveForm => break,
+                        ModalIntent::Swallow => {}
+                        ModalIntent::Passthrough => consumed = false,
+                    }
+                    if consumed { continue; }
+
                     match k.code {
                         KeyCode::Esc => break,
                         KeyCode::Tab | KeyCode::Down => state.next_field(),

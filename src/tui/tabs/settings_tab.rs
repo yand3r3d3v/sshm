@@ -5,6 +5,7 @@ use ratatui::widgets::{
 };
 use crate::config::settings::AppConfig;
 use crate::tui::theme::Theme;
+use crate::tui::vim_mode::{classify_modal_key, ModalIntent, VimMode};
 
 pub struct SettingsFormState {
     pub default_port: String,
@@ -19,6 +20,11 @@ pub struct SettingsFormState {
     pub notifications_enabled: bool,
     pub selected_field: usize,
     pub dirty: bool,
+    /// Modal vim editing state: INSERT (default, original behaviour) vs
+    /// NORMAL (j/k/g/G navigate fields).
+    pub vim_mode: VimMode,
+    /// Half of a `gg` chord pending in NORMAL mode.
+    pub pending_g: bool,
 }
 
 /// Index of the boolean `auto_health_check` field in the form.
@@ -76,6 +82,8 @@ impl SettingsFormState {
             notifications_enabled: config.notifications_enabled,
             selected_field: 0,
             dirty: false,
+            vim_mode: VimMode::default(),
+            pending_g: false,
         }
     }
 
@@ -150,7 +158,12 @@ impl SettingsFormState {
     }
 
     pub fn is_editing_field(&self) -> bool {
-        self.dirty && self.selected_field < Self::fields_count()
+        // In NORMAL mode the user is navigating, not typing, so `h`/`l`
+        // are free to switch tabs. `is_editing_field` is what gates the
+        // global tab-nav allow-list.
+        self.vim_mode.is_insert()
+            && self.dirty
+            && self.selected_field < Self::fields_count()
     }
 }
 
@@ -160,6 +173,25 @@ pub enum SettingsAction {
 }
 
 pub fn handle_settings_event(key: KeyCode, state: &mut SettingsFormState) -> SettingsAction {
+    // Modal layer first: classify the keystroke under INSERT/NORMAL.
+    match classify_modal_key(state.vim_mode, key, &mut state.pending_g) {
+        ModalIntent::EnterNormal => { state.vim_mode = VimMode::Normal; return SettingsAction::None; }
+        ModalIntent::EnterInsert => { state.vim_mode = VimMode::Insert; return SettingsAction::None; }
+        ModalIntent::NavDown => { state.next_field(); return SettingsAction::None; }
+        ModalIntent::NavUp => { state.prev_field(); return SettingsAction::None; }
+        ModalIntent::NavTop | ModalIntent::NavHome => { state.selected_field = 0; return SettingsAction::None; }
+        ModalIntent::NavBottom => {
+            state.selected_field = SettingsFormState::fields_count();
+            return SettingsAction::None;
+        }
+        // Settings is a tab, not a popup — there's nothing to "close".
+        // Bounce back to INSERT so a double-Esc cycles sensibly.
+        ModalIntent::LeaveForm => { state.vim_mode = VimMode::Insert; return SettingsAction::None; }
+        ModalIntent::Swallow => return SettingsAction::None,
+        ModalIntent::Passthrough => {}
+    }
+
+    // INSERT mode: original field-typing behaviour.
     match key {
         KeyCode::Tab | KeyCode::Down => { state.next_field(); SettingsAction::None }
         KeyCode::BackTab | KeyCode::Up => { state.prev_field(); SettingsAction::None }
@@ -250,8 +282,22 @@ fn field_line(state: &SettingsFormState, i: usize, theme: &Theme) -> Line<'stati
 }
 
 pub fn draw_settings_tab(f: &mut Frame, area: Rect, state: &SettingsFormState, theme: &Theme) {
+    // Title carries the vim mode badge so the user always sees which mode
+    // they're in. INSERT is the default (boring); NORMAL is highlighted.
+    let mode_style = if state.vim_mode.is_normal() {
+        Style::default()
+            .fg(theme.bg)
+            .bg(theme.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.muted)
+    };
+    let title = Line::from(vec![
+        Span::raw("Settings  "),
+        Span::styled(format!(" {} ", state.vim_mode.label()), mode_style),
+    ]);
     let block = Block::default()
-        .title("Settings")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme.accent))
         .style(Style::default().bg(theme.bg).fg(theme.fg));

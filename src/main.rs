@@ -106,7 +106,10 @@ fn main() {
             // The tunnel manager outlives individual `run_tui` calls so that
             // background tunnels survive connecting to a host and returning.
             let mut tunnels = sshm::tui::app::tunnels::TunnelManager::new();
-            loop { run_tui(&mut db, &mut tunnels) }
+            // Toast that survives across `run_tui` calls so a failed ssh
+            // launch can show its error after the TUI redraws.
+            let mut pending_toast: Option<sshm::tui::ssh::toast::Toast> = None;
+            loop { run_tui(&mut db, &mut tunnels, &mut pending_toast) }
         }
     }
 }

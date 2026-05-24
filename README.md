@@ -155,20 +155,37 @@ sshm help                                # full CLI reference
 
 ## Keyboard shortcuts
 
+SSHM follows the vim philosophy across every list and form:
+
+- **Lists** (Hosts, Identities, Kluster, Help, tunnel dashboards) use
+  `j`/`k` for up / down, `gg`/`G` (or `Home`/`End`) for top / bottom, and
+  `Ctrl+u`/`Ctrl+d` for half-page scroll where applicable.
+- **Forms** (Settings, Theme, host editor, key-gen, cluster editor,
+  folder rename, port-forward) open in **INSERT** mode (typing goes
+  straight into the active field). Press `Esc` to enter **NORMAL** mode
+  — there `j`/`k`/`gg`/`G` walk between fields and `i`/`a`/`Enter`
+  switch back to **INSERT**. A second `Esc` (from **NORMAL**) closes
+  popup modals; on the Settings / Theme tabs it just bounces back to
+  **INSERT** (you switch tabs with `h`/`l`). The current mode is shown
+  as an `INSERT` / `NORMAL` badge in the form title bar.
+
 ### Global
 
 | Key | Action |
 |-----|--------|
-| `←` / `→` | Switch tabs |
+| `←` / `→` / `h` / `l` | Switch tabs |
 | `q` | Quit |
 
 ### Hosts tab — list navigation
 
 | Key | Action |
 |-----|--------|
-| `↑` / `↓` | Navigate |
+| `↑` / `↓` / `k` / `j` | Navigate |
+| `Ctrl+u` / `Ctrl+d` | Half-page up / down |
+| `PgUp` / `PgDn` | Full-page up / down |
+| `Home` / `End` / `G` | Jump to first / last item |
 | `Enter` | Connect to host / expand-collapse folder |
-| `/` or any letter | Activate fuzzy filter |
+| `/` | Activate fuzzy filter (typed letters extend it) |
 | `1`-`9` | Quick-connect to Nth visible host |
 | `s` | Cycle sort mode (name / MRU / most used / favorites / frecency) |
 | `g` | Toggle group-by-folder ⇆ group-by-tag |
@@ -184,7 +201,7 @@ sshm help                                # full CLI reference
 | `y` | Clone selected host (full copy, opens the editor) |
 | `d` | Delete selected host / folder |
 | `p` | Open port-forward menu — start a tunnel in the background (`f` runs it foreground) |
-| `t` | Background-tunnels dashboard — `d`/`x` stop a tunnel, `o` open a local tunnel's URL |
+| `t` | Background-tunnels dashboard — `j`/`k` navigate, `G` last row, `d`/`x` stop a tunnel, `o` open a local tunnel's URL |
 | `o` | Open the SSH session in a new terminal window |
 | `i` | Push identity to selected host |
 | `r` | Rename folder |
@@ -201,6 +218,7 @@ The available actions depend on what's under the cursor.
 | Key | When | Action |
 |-----|------|--------|
 | `↑`/`↓` `j`/`k` | always | Navigate |
+| `G` | always | Jump to last row |
 | `/` | always | Fuzzy-filter containers / pods / instances (`Esc` clears) |
 | `Enter` | on a header | Expand / collapse the section |
 | `Enter` | on a container / pod / instance | Open `/bin/sh` (`Ctrl+D` to exit) |
@@ -219,7 +237,8 @@ The available actions depend on what's under the cursor.
 
 | Key | Action |
 |-----|--------|
-| `↑` / `↓` | Navigate keys in `~/.ssh` |
+| `↑` / `↓` / `k` / `j` | Navigate keys in `~/.ssh` |
+| `G` | Jump to last key |
 | `/` | Fuzzy-filter keys by file name / type / comment (`Esc` clears) |
 | `g` | Generate a new key (interactive: ed25519 / ed25519-sk / ecdsa / rsa) |
 | `p` | Push selected pubkey to a host |

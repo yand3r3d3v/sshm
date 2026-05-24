@@ -22,6 +22,7 @@ no_key_selected = "No key selected"
 known_hosts_removed = "Removed {host} from known_hosts"
 known_hosts_clean_failed = "known_hosts clean failed: {error}"
 quick_connect_oob = "No host #{n} in the visible list"
+ssh_failed = "SSH failed: {error}"
 
 [kluster]
 docker_unavailable = "Docker daemon not running"

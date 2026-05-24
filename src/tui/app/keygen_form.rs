@@ -31,11 +31,20 @@ pub fn draw_keygen_form(f: &mut Frame, state: &KeygenFormState) {
     let fg = theme.fg;
     let accent = theme.accent;
 
-    let block = Block::default()
-        .title(Span::styled(
-            " Generate SSH key ",
+    let mode_style = if state.vim_mode.is_normal() {
+        Style::default().fg(bg).bg(accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.muted)
+    };
+    let title = Line::from(vec![
+        Span::styled(
+            " Generate SSH key  ",
             Style::default().fg(accent).add_modifier(Modifier::BOLD),
-        ))
+        ),
+        Span::styled(format!(" {} ", state.vim_mode.label()), mode_style),
+    ]);
+    let block = Block::default()
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(accent))
         .style(Style::default().bg(bg).fg(fg));
@@ -218,6 +227,36 @@ pub fn run_keygen_form() -> Option<PathBuf> {
         if k.kind != KeyEventKind::Press {
             continue;
         }
+
+        use crate::tui::vim_mode::{classify_modal_key, ModalIntent, VimMode};
+        let intent = classify_modal_key(state.vim_mode, k.code, &mut state.pending_g);
+        let mut consumed = true;
+        match intent {
+            ModalIntent::EnterNormal => state.vim_mode = VimMode::Normal,
+            ModalIntent::EnterInsert => {
+                if matches!(k.code, KeyCode::Enter)
+                    && state.selected_field == KeygenFormState::fields_count()
+                {
+                    match try_generate(&state) {
+                        Ok(path) => {
+                            result = Some(path);
+                            break;
+                        }
+                        Err(e) => state.error = Some(e),
+                    }
+                } else {
+                    state.vim_mode = VimMode::Insert;
+                }
+            }
+            ModalIntent::NavDown => state.next_field(),
+            ModalIntent::NavUp => state.prev_field(),
+            ModalIntent::NavTop | ModalIntent::NavHome => state.selected_field = 0,
+            ModalIntent::NavBottom => state.selected_field = KeygenFormState::fields_count(),
+            ModalIntent::LeaveForm => break,
+            ModalIntent::Swallow => {}
+            ModalIntent::Passthrough => consumed = false,
+        }
+        if consumed { continue; }
 
         match k.code {
             KeyCode::Esc => break,

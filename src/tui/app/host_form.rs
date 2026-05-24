@@ -30,11 +30,20 @@ pub fn draw_host_form(f: &mut Frame, state: &HostFormState) {
     let fg = theme.fg;
     let accent = theme.accent;
 
-    let block = Block::default()
-        .title(Span::styled(
-            if state.is_edit { "Edit host" } else { "Create host" },
+    let mode_style = if state.vim_mode.is_normal() {
+        Style::default().fg(bg).bg(accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.muted)
+    };
+    let title = Line::from(vec![
+        Span::styled(
+            if state.is_edit { "Edit host  " } else { "Create host  " },
             Style::default().fg(accent).add_modifier(Modifier::BOLD),
-        ))
+        ),
+        Span::styled(format!(" {} ", state.vim_mode.label()), mode_style),
+    ]);
+    let block = Block::default()
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(accent))
         .style(Style::default().bg(bg).fg(fg));
@@ -433,6 +442,43 @@ pub fn run_host_form(db: &mut Database, mut state: HostFormState) {
                             state.open_identity_picker();
                             continue;
                         }
+                    }
+
+                    // Modal vim layer. Tries to handle Esc / mode-toggle /
+                    // j-k-g-G-Home-End first; falls through only in INSERT.
+                    use crate::tui::vim_mode::{classify_modal_key, ModalIntent, VimMode};
+                    let intent = classify_modal_key(state.vim_mode, k.code, &mut state.pending_g);
+                    match intent {
+                        ModalIntent::EnterNormal => { state.vim_mode = VimMode::Normal; continue; }
+                        ModalIntent::EnterInsert => {
+                            // `Enter` in NORMAL on the Save button submits the
+                            // form, matching INSERT-mode behaviour.
+                            if matches!(k.code, KeyCode::Enter)
+                                && state.selected_field == HostFormState::fields_count()
+                            {
+                                match apply_host_form(db, &state) {
+                                    Ok(()) => break,
+                                    Err(e) => state.error = Some(e),
+                                }
+                                continue;
+                            }
+                            state.vim_mode = VimMode::Insert;
+                            continue;
+                        }
+                        ModalIntent::NavDown => { state.next_field(); continue; }
+                        ModalIntent::NavUp => { state.prev_field(); continue; }
+                        ModalIntent::NavTop | ModalIntent::NavHome => {
+                            state.selected_field = 0;
+                            continue;
+                        }
+                        ModalIntent::NavBottom => {
+                            state.selected_field = HostFormState::fields_count();
+                            continue;
+                        }
+                        // Popup modal — second Esc (NORMAL→leave) closes it.
+                        ModalIntent::LeaveForm => break,
+                        ModalIntent::Swallow => continue,
+                        ModalIntent::Passthrough => {}
                     }
 
                     match k.code {

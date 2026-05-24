@@ -39,6 +39,8 @@ pub struct ClusterFormState {
     pub error: Option<String>,
     pub is_edit: bool,
     pub original_name: Option<String>,
+    pub vim_mode: crate::tui::vim_mode::VimMode,
+    pub pending_g: bool,
 }
 
 impl ClusterFormState {
@@ -53,6 +55,8 @@ impl ClusterFormState {
             error: None,
             is_edit: false,
             original_name: None,
+            vim_mode: crate::tui::vim_mode::VimMode::default(),
+            pending_g: false,
         }
     }
 
@@ -67,6 +71,8 @@ impl ClusterFormState {
             error: None,
             is_edit: true,
             original_name: Some(c.name.clone()),
+            vim_mode: crate::tui::vim_mode::VimMode::default(),
+            pending_g: false,
         }
     }
 
@@ -137,11 +143,20 @@ fn draw(f: &mut Frame, state: &ClusterFormState) {
     let area = centered_rect(60, 60, size);
 
     f.render_widget(Clear, area);
-    let block = Block::default()
-        .title(Span::styled(
-            if state.is_edit { " Edit cluster " } else { " Add cluster " },
+    let mode_style = if state.vim_mode.is_normal() {
+        Style::default().fg(theme.bg).bg(theme.accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.muted)
+    };
+    let title = Line::from(vec![
+        Span::styled(
+            if state.is_edit { " Edit cluster  " } else { " Add cluster  " },
             Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
-        ))
+        ),
+        Span::styled(format!(" {} ", state.vim_mode.label()), mode_style),
+    ]);
+    let block = Block::default()
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme.accent))
         .style(Style::default().bg(theme.bg).fg(theme.fg));
@@ -241,6 +256,31 @@ pub fn run_cluster_form(initial: Option<&Cluster>) -> Option<Cluster> {
         if event::poll(Duration::from_millis(120)).unwrap_or(false) {
             if let Ok(Event::Key(k)) = event::read() {
                 if k.kind != KeyEventKind::Press { continue; }
+                use crate::tui::vim_mode::{classify_modal_key, ModalIntent, VimMode};
+                let intent = classify_modal_key(state.vim_mode, k.code, &mut state.pending_g);
+                let mut consumed = true;
+                match intent {
+                    ModalIntent::EnterNormal => state.vim_mode = VimMode::Normal,
+                    ModalIntent::EnterInsert => {
+                        if matches!(k.code, KeyCode::Enter) && state.selected == FIELD_SAVE {
+                            match state.validate() {
+                                Ok(c) => break Some(c),
+                                Err(e) => state.error = Some(e),
+                            }
+                        } else {
+                            state.vim_mode = VimMode::Insert;
+                        }
+                    }
+                    ModalIntent::NavDown => state.next_field(),
+                    ModalIntent::NavUp => state.prev_field(),
+                    ModalIntent::NavTop | ModalIntent::NavHome => state.selected = 0,
+                    ModalIntent::NavBottom => state.selected = FIELD_SAVE,
+                    ModalIntent::LeaveForm => break None,
+                    ModalIntent::Swallow => {}
+                    ModalIntent::Passthrough => consumed = false,
+                }
+                if consumed { continue; }
+
                 match k.code {
                     KeyCode::Esc => break None,
                     KeyCode::Tab | KeyCode::Down => state.next_field(),
