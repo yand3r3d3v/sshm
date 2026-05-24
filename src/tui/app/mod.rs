@@ -146,7 +146,7 @@ use kluster_actions::{
     sync_kluster_targets,
 };
 
-pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
+pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager, pending_toast: &mut Option<Toast>) {
     // Source items
     let mut sort_mode: SortMode = SortMode::Name;
     let mut view_mode: ViewMode = ViewMode::Folders;
@@ -212,8 +212,10 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
     let mut help_state = HelpTabState::new();
     let mut identities_state = IdentitiesTabState::new();
 
-    // Toast notification
-    let mut toast: Option<Toast> = None;
+    // Toast notification — seeded from any pending toast carried over from
+    // the previous `run_tui` iteration (e.g. an ssh launch that failed and
+    // returned us here).
+    let mut toast: Option<Toast> = pending_toast.take();
 
     // Host reachability status (name → status)
     let mut host_status: HashMap<String, HostStatus> = HashMap::new();
@@ -808,6 +810,7 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                                     input_mode = false;
                                 } else {
                                     let mut launched_host: Option<String> = None;
+                                    let mut launch_err: Option<String> = None;
                                     {
                                         let rows = rows_for(view_mode, db, &items, &filtered, &filter, &collapsed);
                                         if let Some(row) = rows.get(selected) {
@@ -819,7 +822,7 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                                                     let host_clone = (*h).clone();
                                                     let _ = disable_raw_mode();
                                                     let _ = execute!(stdout(), LeaveAlternateScreen);
-                                                    crate::ssh::client::launch_ssh(&host_clone, &db.hosts, None);
+                                                    launch_err = crate::ssh::client::launch_ssh(&host_clone, &db.hosts, None);
                                                     let _ = enable_raw_mode();
                                                     let _ = execute!(stdout(), EnterAlternateScreen);
                                                     clear_console();
@@ -832,10 +835,15 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                                         // Drop borrows into db before mutating.
                                         filtered.clear();
                                         items.clear();
-                                        if let Some(h) = db.hosts.get_mut(&name) {
-                                            record_connection(h);
+                                        if launch_err.is_none() {
+                                            if let Some(h) = db.hosts.get_mut(&name) {
+                                                record_connection(h);
+                                            }
+                                            save_db(db);
                                         }
-                                        save_db(db);
+                                        if let Some(err) = launch_err {
+                                            *pending_toast = Some(Toast::error(t!("toast.ssh_failed", "error" => err)));
+                                        }
                                         return;
                                     }
                                 }
@@ -1275,16 +1283,21 @@ pub fn run_tui(db: &mut Database, tunnels: &mut TunnelManager) {
                                                 if let Some(host_clone) = host_clone {
                                                     let _ = disable_raw_mode();
                                                     let _ = execute!(stdout(), LeaveAlternateScreen);
-                                                    crate::ssh::client::launch_ssh(&host_clone, &db.hosts, None);
+                                                    let launch_err = crate::ssh::client::launch_ssh(&host_clone, &db.hosts, None);
                                                     let _ = enable_raw_mode();
                                                     let _ = execute!(stdout(), EnterAlternateScreen);
                                                     clear_console();
                                                     filtered.clear();
                                                     items.clear();
-                                                    if let Some(h) = db.hosts.get_mut(&host_clone.name) {
-                                                        record_connection(h);
+                                                    if launch_err.is_none() {
+                                                        if let Some(h) = db.hosts.get_mut(&host_clone.name) {
+                                                            record_connection(h);
+                                                        }
+                                                        save_db(db);
                                                     }
-                                                    save_db(db);
+                                                    if let Some(err) = launch_err {
+                                                        *pending_toast = Some(Toast::error(t!("toast.ssh_failed", "error" => err)));
+                                                    }
                                                     return;
                                                 }
                                             } else {
