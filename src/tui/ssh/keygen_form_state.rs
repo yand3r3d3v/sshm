@@ -16,6 +16,8 @@ pub struct KeygenFormState {
     pub passphrase: String,
     pub selected_field: usize,
     pub error: Option<String>,
+    pub vim_mode: crate::tui::vim_mode::VimMode,
+    pub pending_g: bool,
 }
 
 impl KeygenFormState {
@@ -32,6 +34,8 @@ impl KeygenFormState {
             passphrase: String::new(),
             selected_field: 0,
             error: None,
+            vim_mode: crate::tui::vim_mode::VimMode::default(),
+            pending_g: false,
         }
     }
 

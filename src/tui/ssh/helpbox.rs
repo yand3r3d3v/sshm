@@ -8,8 +8,14 @@ pub enum HelpContext {
     FolderNav,
     FilterMode,
     DeleteModal,
+    /// Settings tab while typing into a field (vim INSERT).
     SettingsTab,
+    /// Settings tab in vim NORMAL — navigation hints replace typing hints.
+    SettingsTabNormal,
+    /// Theme tab in vim INSERT (or when sitting on a non-text row).
     ThemeTab,
+    /// Theme tab in vim NORMAL.
+    ThemeTabNormal,
     HelpTab,
     IdentitiesTab,
     /// Selection is on a Docker / Incus-local / Incus-remote section header
@@ -32,43 +38,49 @@ pub enum HelpContext {
 fn help_text_for(ctx: HelpContext) -> &'static str {
     match ctx {
         HelpContext::HostNav => {
-            "↑↓ move │ ? help │ Enter connect │ o new-term │ / filter │ a add │ e edit │ y clone │ d delete │ Space select │ X run-cmd │ c check │ p forward │ t tunnels │ i identity │ f fav │ s sort │ q quit"
+            "↑↓/jk move │ G bottom │ Ctrl-d/u half-page │ ? help │ Enter connect │ o new-term │ / filter │ a add │ e edit │ y clone │ d delete │ Space select │ X run-cmd │ c check │ p forward │ t tunnels │ i identity │ f fav │ s sort │ q quit"
         }
         HelpContext::FolderNav => {
-            "↑↓ move │ ? help │ Enter expand/collapse │ / filter │ a add │ r rename │ d delete │ t tunnels │ q quit"
+            "↑↓/jk move │ G bottom │ Ctrl-d/u half-page │ ? help │ Enter expand/collapse │ / filter │ a add │ r rename │ d delete │ t tunnels │ q quit"
         }
         HelpContext::FilterMode => {
-            "Type to filter (fuzzy) │ Esc clear │ Enter confirm"
+            "Type to filter (fuzzy) │ ↑↓ move │ Esc clear │ Enter confirm"
         }
         HelpContext::DeleteModal => {
-            "←→ select │ Enter confirm │ Esc cancel"
+            "←→/hl or ↑↓/kj select │ Enter confirm │ Esc cancel"
         }
         HelpContext::SettingsTab => {
-            "↑↓ navigate │ ? help │ Type to edit │ Enter save │ ←→/h/l tab │ Esc reset"
+            "Type to edit │ Tab/↑↓ next field │ Enter save │ Esc → Normal │ ←→/h/l tab │ ? help"
+        }
+        HelpContext::SettingsTabNormal => {
+            "j/k field down/up │ gg/G first/last │ i/a/Enter → Insert │ Esc revert │ ←→/h/l tab │ ? help │ q quit"
         }
         HelpContext::ThemeTab => {
-            "↑↓ navigate │ ? help │ Enter apply/save │ ←→/h/l tab │ Esc reset"
+            "Tab/↑↓ next field │ Enter apply/save │ Esc → Normal │ ←→/h/l tab │ ? help"
+        }
+        HelpContext::ThemeTabNormal => {
+            "j/k field down/up │ gg/G first/last │ i/a/Enter → Insert │ Esc revert │ ←→/h/l tab │ ? help │ q quit"
         }
         HelpContext::HelpTab => {
-            "↑↓ scroll │ ? help │ PageUp/PageDn fast scroll │ Home top │ ←→/h/l tab │ q quit"
+            "↑↓/jk scroll │ gg/G top/bottom │ PageUp/PageDn fast scroll │ ? help │ ←→/h/l tab │ q quit"
         }
         HelpContext::IdentitiesTab => {
-            "↑↓ move │ ? help │ / filter │ g generate │ p push │ a agent-add │ x agent-del │ K known-hosts │ r refresh │ ←→/h/l tab │ q quit"
+            "↑↓/jk move │ G bottom │ ? help │ / filter │ g generate │ p push │ a agent-add │ x agent-del │ K known-hosts │ r refresh │ ←→/h/l tab │ q quit"
         }
         HelpContext::KlusterHeaderRuntime => {
-            "↑↓ move │ ? help │ Enter expand/collapse │ / filter │ r refresh │ n add cluster │ ←→/h/l tab │ q quit"
+            "↑↓/jk move │ G bottom │ ? help │ Enter expand/collapse │ / filter │ r refresh │ n add cluster │ ←→/h/l tab │ q quit"
         }
         HelpContext::KlusterHeaderCluster => {
-            "↑↓ move │ ? help │ Enter expand/collapse │ / filter │ r refresh │ n add │ e edit │ d delete │ ←→/h/l tab │ q quit"
+            "↑↓/jk move │ G bottom │ ? help │ Enter expand/collapse │ / filter │ r refresh │ n add │ e edit │ d delete │ ←→/h/l tab │ q quit"
         }
         HelpContext::KlusterHeaderDockerRemote => {
-            "↑↓ move │ ? help │ Enter expand/collapse │ / filter │ r refresh │ n add docker remote │ d unlink │ ←→/h/l tab │ q quit"
+            "↑↓/jk move │ G bottom │ ? help │ Enter expand/collapse │ / filter │ r refresh │ n add docker remote │ d unlink │ ←→/h/l tab │ q quit"
         }
         HelpContext::KlusterItem => {
-            "↑↓ move │ ? help │ Enter shell │ L logs(-f) │ s start/stop │ R restart │ / filter │ r refresh │ ←→/h/l tab │ q quit"
+            "↑↓/jk move │ G bottom │ ? help │ Enter shell │ L logs(-f) │ s start/stop │ R restart │ / filter │ r refresh │ ←→/h/l tab │ q quit"
         }
         HelpContext::KlusterTerminalPod => {
-            "↑↓ move │ ? help │ Enter shell │ L logs(-f) │ / filter │ d delete pod │ r refresh │ ←→/h/l tab │ q quit"
+            "↑↓/jk move │ G bottom │ ? help │ Enter shell │ L logs(-f) │ / filter │ d delete pod │ r refresh │ ←→/h/l tab │ q quit"
         }
         HelpContext::Empty => {
             "a add host │ ? help │ q quit │ ←→/h/l tab"
@@ -83,8 +95,10 @@ fn context_label(ctx: HelpContext) -> &'static str {
         HelpContext::FolderNav => "Folder",
         HelpContext::FilterMode => "Filter",
         HelpContext::DeleteModal => "Delete",
-        HelpContext::SettingsTab => "Settings",
-        HelpContext::ThemeTab => "Theme",
+        HelpContext::SettingsTab => "Settings — INSERT",
+        HelpContext::SettingsTabNormal => "Settings — NORMAL",
+        HelpContext::ThemeTab => "Theme — INSERT",
+        HelpContext::ThemeTabNormal => "Theme — NORMAL",
         HelpContext::HelpTab => "Help",
         HelpContext::IdentitiesTab => "Identities",
         HelpContext::KlusterHeaderRuntime => "Kluster — runtime header",

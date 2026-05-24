@@ -30,6 +30,8 @@ struct PortForwardForm {
     save: bool,
     selected_field: usize,
     error: Option<String>,
+    vim_mode: crate::tui::vim_mode::VimMode,
+    pending_g: bool,
 }
 
 impl PortForwardForm {
@@ -43,6 +45,8 @@ impl PortForwardForm {
             save: false,
             selected_field: 0,
             error: None,
+            vim_mode: crate::tui::vim_mode::VimMode::default(),
+            pending_g: false,
         }
     }
 
@@ -56,6 +60,8 @@ impl PortForwardForm {
             save: true,
             selected_field: 0,
             error: None,
+            vim_mode: crate::tui::vim_mode::VimMode::default(),
+            pending_g: false,
         }
     }
 
@@ -273,6 +279,12 @@ fn run_tunnel_picker<B: Backend>(
                         let i = (sel + tunnels.len() - 1) % tunnels.len();
                         state.select(Some(i));
                     }
+                    KeyCode::Char('G') | KeyCode::End => {
+                        state.select(Some(tunnels.len().saturating_sub(1)));
+                    }
+                    KeyCode::Home => {
+                        state.select(Some(0));
+                    }
                     KeyCode::Char(c) if c.is_ascii_digit() && c != '0' => {
                         let i = (c as usize) - ('1' as usize);
                         if let Some(t) = tunnels.get(i) {
@@ -295,11 +307,20 @@ fn draw_port_form(f: &mut Frame, state: &PortForwardForm, host: &Host) {
     let area = centered_rect(60, 70, size);
     let theme = theme::load();
 
-    let block = Block::default()
-        .title(Span::styled(
-            format!(" Port Forward - {} ", host.name),
+    let mode_style = if state.vim_mode.is_normal() {
+        Style::default().fg(theme.bg).bg(theme.accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.muted)
+    };
+    let title = Line::from(vec![
+        Span::styled(
+            format!(" Port Forward - {}  ", host.name),
             Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
-        ))
+        ),
+        Span::styled(format!(" {} ", state.vim_mode.label()), mode_style),
+    ]);
+    let block = Block::default()
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme.accent))
         .style(Style::default().bg(theme.bg).fg(theme.fg));
@@ -704,6 +725,39 @@ pub fn run_port_forward(
         if event::poll(Duration::from_millis(120)).unwrap_or(false) {
             if let Ok(Event::Key(k)) = event::read() {
                 if k.kind != KeyEventKind::Press { continue; }
+                use crate::tui::vim_mode::{classify_modal_key, ModalIntent, VimMode};
+                let intent = classify_modal_key(form.vim_mode, k.code, &mut form.pending_g);
+                let mut consumed = true;
+                match intent {
+                    ModalIntent::EnterNormal => form.vim_mode = VimMode::Normal,
+                    ModalIntent::EnterInsert => {
+                        if matches!(k.code, KeyCode::Enter) && form.selected_field == 6 {
+                            match form.validate() {
+                                Ok(t) => {
+                                    if form.save {
+                                        match edit_index {
+                                            Some(i) if i < tunnels.len() => tunnels[i] = t.clone(),
+                                            _ => tunnels.push(t.clone()),
+                                        }
+                                    }
+                                    break t;
+                                }
+                                Err(e) => { form.error = Some(e); continue; }
+                            }
+                        } else {
+                            form.vim_mode = VimMode::Insert;
+                        }
+                    }
+                    ModalIntent::NavDown => form.next_field(),
+                    ModalIntent::NavUp => form.prev_field(),
+                    ModalIntent::NavTop | ModalIntent::NavHome => form.selected_field = 0,
+                    ModalIntent::NavBottom => form.selected_field = 6,
+                    ModalIntent::LeaveForm => finish!(None),
+                    ModalIntent::Swallow => {}
+                    ModalIntent::Passthrough => consumed = false,
+                }
+                if consumed { continue; }
+
                 match k.code {
                     KeyCode::Esc => finish!(None),
                     KeyCode::Tab | KeyCode::Down => form.next_field(),

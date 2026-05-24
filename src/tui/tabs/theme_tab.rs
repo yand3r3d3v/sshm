@@ -2,6 +2,7 @@ use crossterm::event::KeyCode;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 use crate::tui::theme::{Theme, PRESETS, hex_to_color, form_values};
+use crate::tui::vim_mode::{classify_modal_key, ModalIntent, VimMode};
 
 /// Fields layout:
 /// 0..PRESETS.len()-1  = preset items
@@ -22,6 +23,9 @@ pub struct ThemeTabState {
     /// can untick the box and get their colour back.
     pub transparent_bg: bool,
     pub dirty: bool,
+    /// Modal vim editing state.
+    pub vim_mode: VimMode,
+    pub pending_g: bool,
 }
 
 impl ThemeTabState {
@@ -37,6 +41,8 @@ impl ThemeTabState {
             custom_success: v.success,
             transparent_bg: v.transparent_bg,
             dirty: false,
+            vim_mode: VimMode::default(),
+            pending_g: false,
         }
     }
 
@@ -48,7 +54,7 @@ impl ThemeTabState {
     fn separator_index() -> usize { PRESETS.len() }
     fn custom_start() -> usize { PRESETS.len() + 1 }
     pub fn transparent_index() -> usize { PRESETS.len() + 7 }
-    fn save_index() -> usize { PRESETS.len() + 8 }
+    pub fn save_index() -> usize { PRESETS.len() + 8 }
 
     pub fn next_field(&mut self) {
         self.selected_field = (self.selected_field + 1) % Self::total_fields();
@@ -77,8 +83,12 @@ impl ThemeTabState {
     }
 
     pub fn is_editing_custom_field(&self) -> bool {
+        // In NORMAL mode the user is navigating, so let h/l switch tabs.
         let start = Self::custom_start();
-        self.dirty && self.selected_field >= start && self.selected_field < start + 6
+        self.vim_mode.is_insert()
+            && self.dirty
+            && self.selected_field >= start
+            && self.selected_field < start + 6
     }
 
     fn active_custom_mut(&mut self) -> Option<&mut String> {
@@ -122,6 +132,24 @@ pub enum ThemeAction {
 }
 
 pub fn handle_theme_event(key: KeyCode, state: &mut ThemeTabState) -> ThemeAction {
+    // Modal layer: dispatch INSERT/NORMAL transitions and vim-style nav.
+    // `next_field` / `prev_field` already skip the "Custom Colors"
+    // separator, so we reuse them here.
+    match classify_modal_key(state.vim_mode, key, &mut state.pending_g) {
+        ModalIntent::EnterNormal => { state.vim_mode = VimMode::Normal; return ThemeAction::None; }
+        ModalIntent::EnterInsert => { state.vim_mode = VimMode::Insert; return ThemeAction::None; }
+        ModalIntent::NavDown => { state.next_field(); return ThemeAction::None; }
+        ModalIntent::NavUp => { state.prev_field(); return ThemeAction::None; }
+        ModalIntent::NavTop | ModalIntent::NavHome => { state.selected_field = 0; return ThemeAction::None; }
+        ModalIntent::NavBottom => {
+            state.selected_field = ThemeTabState::save_index();
+            return ThemeAction::None;
+        }
+        ModalIntent::LeaveForm => { state.vim_mode = VimMode::Insert; return ThemeAction::None; }
+        ModalIntent::Swallow => return ThemeAction::None,
+        ModalIntent::Passthrough => {}
+    }
+
     match key {
         KeyCode::Down | KeyCode::Tab => { state.next_field(); ThemeAction::None }
         KeyCode::Up | KeyCode::BackTab => { state.prev_field(); ThemeAction::None }
@@ -161,8 +189,20 @@ pub fn handle_theme_event(key: KeyCode, state: &mut ThemeTabState) -> ThemeActio
 }
 
 pub fn draw_theme_tab(f: &mut Frame, area: Rect, state: &ThemeTabState, theme: &Theme) {
+    let mode_style = if state.vim_mode.is_normal() {
+        Style::default()
+            .fg(theme.bg)
+            .bg(theme.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.muted)
+    };
+    let title = Line::from(vec![
+        Span::raw("Theme  "),
+        Span::styled(format!(" {} ", state.vim_mode.label()), mode_style),
+    ]);
     let block = Block::default()
-        .title("Theme")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme.accent))
         .style(Style::default().bg(theme.bg).fg(theme.fg));

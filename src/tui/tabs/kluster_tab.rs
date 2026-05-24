@@ -513,6 +513,10 @@ pub fn handle_kluster_event(key: KeyCode, state: &mut KlusterTabState) -> Kluste
     match key {
         KeyCode::Up | KeyCode::Char('k') => { state.move_up(); KlusterAction::None }
         KeyCode::Down | KeyCode::Char('j') => { state.move_down(); KlusterAction::None }
+        KeyCode::Char('G') => {
+            state.selected = state.flat_rows.len().saturating_sub(1);
+            KlusterAction::None
+        }
         KeyCode::Char('r') => KlusterAction::Refresh,
         // `n` is context-aware: on a docker (local or remote) header, register
         // a new Docker remote; everywhere else it adds a k8s/k3s cluster.

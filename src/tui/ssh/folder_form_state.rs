@@ -3,6 +3,8 @@ pub struct FolderFormState {
     pub original_name: String,
     pub selected_field: usize,
     pub error: Option<String>,
+    pub vim_mode: crate::tui::vim_mode::VimMode,
+    pub pending_g: bool,
 }
 
 impl FolderFormState {
@@ -12,6 +14,8 @@ impl FolderFormState {
             original_name: name.to_string(),
             selected_field: 0,
             error: None,
+            vim_mode: crate::tui::vim_mode::VimMode::default(),
+            pending_g: false,
         }
     }
 

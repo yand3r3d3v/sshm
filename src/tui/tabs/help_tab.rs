@@ -6,6 +6,9 @@ use crate::tui::theme::Theme;
 #[derive(Default)]
 pub struct HelpTabState {
     pub scroll: u16,
+    /// Tracks a pending `g` keypress so that `gg` can jump to the top
+    /// without taking over the single-`g` key for anything else.
+    pub pending_g: bool,
 }
 
 impl HelpTabState {
@@ -15,6 +18,8 @@ impl HelpTabState {
 }
 
 pub fn handle_help_event(key: KeyCode, state: &mut HelpTabState) {
+    let was_pending_g = state.pending_g;
+    state.pending_g = false;
     match key {
         KeyCode::Down | KeyCode::Char('j') => {
             state.scroll = state.scroll.saturating_add(1);
@@ -31,6 +36,17 @@ pub fn handle_help_event(key: KeyCode, state: &mut HelpTabState) {
         KeyCode::Home => {
             state.scroll = 0;
         }
+        KeyCode::End | KeyCode::Char('G') => {
+            // Renderer clamps to max_scroll, so jumping past the end is safe.
+            state.scroll = u16::MAX;
+        }
+        KeyCode::Char('g') => {
+            if was_pending_g {
+                state.scroll = 0;
+            } else {
+                state.pending_g = true;
+            }
+        }
         _ => {}
     }
 }
@@ -43,11 +59,33 @@ const HELP_TEXT: &str = r#"
 
   ─── Navigation ───────────────────────────────
 
-  ←/→            Switch between tabs (Hosts, Settings, Theme, Help)
-  ↑/↓            Move selection up/down
-  PageUp/PageDn  Scroll fast
-  Home/End       Jump to first/last item
+  ←/→ or h/l     Switch between tabs (Hosts, Settings, Theme, Help)
+  ↑/↓ or k/j     Move selection up/down
+  PageUp/PageDn  Scroll a full page
+  Ctrl-u/Ctrl-d  Scroll a half-page (Hosts + tunnels dashboard)
+  Home / gg      Jump to first item (gg works in this Help view)
+  End  / G       Jump to last item
   q              Quit the application
+
+  ─── Modal forms (vim style) ────────────────────
+
+  Settings, Theme, the host editor (a/e/y), the key generator (g in
+  Identities), the cluster editor (n/e on a Kluster header), folder
+  rename (r), and the port-forward editor are all modal in the vim
+  sense: they open in INSERT and switch to NORMAL with Esc.
+
+  Esc            Insert  → Normal
+  i / a / Enter  Normal  → Insert
+                 (Enter on the Save row submits the form)
+  j / k          Normal: next / previous field
+  gg / G         Normal: first / last field
+  Esc (Normal)   Close popup modals (host editor, key-gen, cluster
+                 editor, folder rename, port-forward).
+                 On Settings & Theme tabs, bounces back to Insert
+                 (switch tabs with h/l).
+  q (Normal)     Same as Esc (Normal).
+  Ctrl-L         On the Identity field of the host editor: open the
+                 SSH key picker (works in either mode).
 
   ─── Hosts Tab ────────────────────────────────
 
@@ -263,7 +301,7 @@ const HELP_TEXT: &str = r#"
 
 "#;
 
-pub fn draw_help_tab(f: &mut Frame, area: Rect, state: &HelpTabState, theme: &Theme) {
+pub fn draw_help_tab(f: &mut Frame, area: Rect, state: &mut HelpTabState, theme: &Theme) {
     let block = Block::default()
         .title("Help")
         .borders(Borders::ALL)
@@ -316,7 +354,10 @@ pub fn draw_help_tab(f: &mut Frame, area: Rect, state: &HelpTabState, theme: &Th
     let visible = inner.height;
     let max_scroll = total_lines.saturating_sub(visible);
 
-    let scroll = state.scroll.min(max_scroll);
+    // Clamp state so that `G` (sets scroll = u16::MAX) collapses to the real
+    // bottom — without this, follow-up `k` presses would walk down from MAX.
+    state.scroll = state.scroll.min(max_scroll);
+    let scroll = state.scroll;
 
     let paragraph = Paragraph::new(lines).scroll((scroll, 0));
     f.render_widget(paragraph, inner);

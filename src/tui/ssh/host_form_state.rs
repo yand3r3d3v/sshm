@@ -40,6 +40,10 @@ pub struct HostFormState {
     pub identity_picker_choices: Vec<IdentityChoice>,
     /// Cursor index into `identity_picker_choices`.
     pub identity_picker_selected: usize,
+
+    /// Modal vim editing state.
+    pub vim_mode: crate::tui::vim_mode::VimMode,
+    pub pending_g: bool,
 }
 
 impl HostFormState {
@@ -63,6 +67,8 @@ impl HostFormState {
             identity_picker_open: false,
             identity_picker_choices: Vec::new(),
             identity_picker_selected: 0,
+            vim_mode: crate::tui::vim_mode::VimMode::default(),
+            pending_g: false,
         }
     }
 
@@ -87,6 +93,8 @@ impl HostFormState {
                 identity_picker_open: false,
                 identity_picker_choices: Vec::new(),
                 identity_picker_selected: 0,
+                vim_mode: crate::tui::vim_mode::VimMode::default(),
+                pending_g: false,
             }
         } else {
             HostFormState::new_create(None, &AppConfig::default())

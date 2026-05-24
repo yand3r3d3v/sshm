@@ -156,12 +156,16 @@ pub fn handle_identities_event(
             state.rebuild_visible();
             IdentitiesAction::None
         }
-        KeyCode::Up => {
+        KeyCode::Up | KeyCode::Char('k') => {
             state.move_up();
             IdentitiesAction::None
         }
-        KeyCode::Down => {
+        KeyCode::Down | KeyCode::Char('j') => {
             state.move_down();
+            IdentitiesAction::None
+        }
+        KeyCode::Char('G') => {
+            state.selected = state.visible.len().saturating_sub(1);
             IdentitiesAction::None
         }
         KeyCode::Char('r') => IdentitiesAction::Refresh,
