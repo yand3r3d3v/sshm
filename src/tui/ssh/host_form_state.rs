@@ -1,5 +1,18 @@
+use std::path::{Path, PathBuf};
+
 use crate::config::settings::AppConfig;
 use crate::models::{tags_to_string, Database};
+
+/// One option in the identity picker. We carry just the bits the picker
+/// renders — the picker doesn't need fingerprints or agent state.
+#[derive(Clone, Debug)]
+pub struct IdentityChoice {
+    pub display_path: String,
+    pub key_type: String,
+    pub bits: Option<u32>,
+    pub in_agent: bool,
+    pub private: PathBuf,
+}
 
 pub struct HostFormState {
     pub name: String,
@@ -19,6 +32,14 @@ pub struct HostFormState {
     /// Last validation error from `apply_host_form`. Rendered under the Save
     /// button until the user edits any field or presses Esc.
     pub error: Option<String>,
+
+    /// True when the identity picker overlay is on top of the form. While
+    /// open it swallows every keystroke and the underlying fields are frozen.
+    pub identity_picker_open: bool,
+    /// Cached `~/.ssh` key list for the picker, refreshed each time it opens.
+    pub identity_picker_choices: Vec<IdentityChoice>,
+    /// Cursor index into `identity_picker_choices`.
+    pub identity_picker_selected: usize,
 }
 
 impl HostFormState {
@@ -39,6 +60,9 @@ impl HostFormState {
             is_edit: false,
             original_name: None,
             error: None,
+            identity_picker_open: false,
+            identity_picker_choices: Vec::new(),
+            identity_picker_selected: 0,
         }
     }
 
@@ -60,9 +84,74 @@ impl HostFormState {
                 is_edit: true,
                 original_name: Some(h.name.clone()),
                 error: None,
+                identity_picker_open: false,
+                identity_picker_choices: Vec::new(),
+                identity_picker_selected: 0,
             }
         } else {
             HostFormState::new_create(None, &AppConfig::default())
+        }
+    }
+
+    /// Field index of the Identity-file row (where Ctrl+L opens the picker).
+    pub const IDENTITY_FIELD: usize = 4;
+
+    /// Snapshot `~/.ssh` into the picker, pre-selecting the entry that matches
+    /// the field's current value when possible.
+    pub fn open_identity_picker(&mut self) {
+        let scanned = crate::ssh::keys::scan_ssh_dir();
+        self.identity_picker_choices = scanned
+            .into_iter()
+            .map(|k| IdentityChoice {
+                display_path: shorten_home(&k.private),
+                key_type: k.key_type,
+                bits: k.bits,
+                in_agent: k.in_agent,
+                private: k.private,
+            })
+            .collect();
+        let current = self.identity_file.trim();
+        let expanded_current = if current.is_empty() {
+            String::new()
+        } else {
+            shellexpand::tilde(current).to_string()
+        };
+        self.identity_picker_selected = self
+            .identity_picker_choices
+            .iter()
+            .position(|c| {
+                c.private.to_string_lossy() == expanded_current
+                    || c.display_path == current
+            })
+            .unwrap_or(0);
+        self.identity_picker_open = true;
+    }
+
+    pub fn close_identity_picker(&mut self) {
+        self.identity_picker_open = false;
+    }
+
+    /// Apply the highlighted picker entry into the `identity_file` field.
+    pub fn commit_identity_picker(&mut self) {
+        if let Some(choice) = self
+            .identity_picker_choices
+            .get(self.identity_picker_selected)
+        {
+            self.identity_file = choice.display_path.clone();
+            self.error = None;
+        }
+        self.identity_picker_open = false;
+    }
+
+    pub fn picker_move_up(&mut self) {
+        if self.identity_picker_selected > 0 {
+            self.identity_picker_selected -= 1;
+        }
+    }
+
+    pub fn picker_move_down(&mut self) {
+        if self.identity_picker_selected + 1 < self.identity_picker_choices.len() {
+            self.identity_picker_selected += 1;
         }
     }
 
@@ -126,4 +215,16 @@ impl HostFormState {
             field.pop();
         }
     }
+}
+
+/// Compress `/home/alice/.ssh/id_ed25519` → `~/.ssh/id_ed25519` so the stored
+/// identity_file follows the convention used elsewhere in the project (and
+/// stays portable across machines that share the same `$HOME` layout).
+fn shorten_home(p: &Path) -> String {
+    if let Some(home) = dirs::home_dir() {
+        if let Ok(rel) = p.strip_prefix(&home) {
+            return format!("~/{}", rel.display());
+        }
+    }
+    p.display().to_string()
 }

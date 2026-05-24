@@ -4,13 +4,13 @@ use std::io::stdout;
 use std::time::Duration;
 
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
     Terminal,
 };
 
@@ -167,7 +167,9 @@ pub fn draw_host_form(f: &mut Frame, state: &HostFormState) {
         ]));
         f.render_widget(err_para, footer_area);
     } else {
-        let pj_hint = if state.selected_field == 5 {
+        let pj_hint = if state.selected_field == HostFormState::IDENTITY_FIELD {
+            "Identity file: path to the private key. Ctrl+L to pick one from ~/.ssh."
+        } else if state.selected_field == 5 {
             "ProxyJump: comma-separated multi-hop, e.g. \"bastion1,bastion2\". Each entry can be a saved host name (auto-resolved) or user@host[:port]."
         } else if state.selected_field == 8 {
             "Notes: free-text reminder shown in the host detail panel. Not used by ssh."
@@ -182,6 +184,92 @@ pub fn draw_host_form(f: &mut Frame, state: &HostFormState) {
             .style(Style::default().fg(theme.muted));
         f.render_widget(help, footer_area);
     }
+
+    if state.identity_picker_open {
+        draw_identity_picker(f, state, &theme);
+    }
+}
+
+/// Render the picker overlay listing keys discovered in `~/.ssh`. Drawn on
+/// top of the host form via a `Clear` so the underlying form is visually
+/// dimmed-out (it's not actually disabled — input is gated by `state.identity_picker_open`).
+fn draw_identity_picker(f: &mut Frame, state: &HostFormState, theme: &theme::Theme) {
+    let size = f.area();
+    let area = centered_rect(60, 60, size);
+
+    f.render_widget(Clear, area);
+
+    let block = Block::default()
+        .title(Span::styled(
+            " Pick an identity (~/.ssh) ",
+            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.accent))
+        .style(Style::default().bg(theme.bg).fg(theme.fg));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    if state.identity_picker_choices.is_empty() {
+        let empty = Paragraph::new(Line::from(vec![Span::styled(
+            "No private keys found in ~/.ssh.",
+            Style::default().fg(theme.muted),
+        )]));
+        f.render_widget(empty, chunks[0]);
+    } else {
+        let items: Vec<ListItem> = state
+            .identity_picker_choices
+            .iter()
+            .map(|c| {
+                let agent_marker = if c.in_agent { "●" } else { "∘" };
+                let marker_style = if c.in_agent {
+                    Style::default().fg(theme.success)
+                } else {
+                    Style::default().fg(theme.muted)
+                };
+                let bits = c
+                    .bits
+                    .map(|b| format!(" {}b", b))
+                    .unwrap_or_default();
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!("{}  ", agent_marker), marker_style),
+                    Span::styled(
+                        format!("{:<28}", c.display_path),
+                        Style::default().fg(theme.fg),
+                    ),
+                    Span::styled(
+                        format!(" {}{}", c.key_type, bits),
+                        Style::default().fg(theme.muted),
+                    ),
+                ]))
+            })
+            .collect();
+
+        let mut ls = ListState::default();
+        ls.select(Some(state.identity_picker_selected));
+
+        let list = List::new(items)
+            .highlight_symbol("➜ ")
+            .highlight_style(
+                Style::default()
+                    .bg(theme.accent)
+                    .fg(theme.bg)
+                    .add_modifier(Modifier::BOLD),
+            );
+        f.render_stateful_widget(list, chunks[0], &mut ls);
+    }
+
+    let footer = Paragraph::new(Line::from(vec![Span::styled(
+        "↑↓ navigate • Enter select • Esc cancel",
+        Style::default().fg(theme.muted),
+    )]));
+    f.render_widget(footer, chunks[1]);
 }
 
 pub fn apply_host_form(db: &mut Database, state: &HostFormState) -> Result<(), String> {
@@ -321,6 +409,32 @@ pub fn run_host_form(db: &mut Database, mut state: HostFormState) {
         if event::poll(Duration::from_millis(150)).unwrap_or(false) {
             if let Ok(Event::Key(k)) = event::read() {
                 if k.kind == KeyEventKind::Press {
+                    // Identity picker is modal: it eats every keystroke until
+                    // the user either selects an entry or cancels.
+                    if state.identity_picker_open {
+                        match k.code {
+                            KeyCode::Esc => state.close_identity_picker(),
+                            KeyCode::Up => state.picker_move_up(),
+                            KeyCode::Down => state.picker_move_down(),
+                            KeyCode::Enter => state.commit_identity_picker(),
+                            _ => {}
+                        }
+                        continue;
+                    }
+
+                    // Ctrl+L opens the identity picker when the cursor is on
+                    // the identity-file field. Anywhere else it's a no-op so
+                    // the chord can't accidentally clobber typed text.
+                    if let KeyCode::Char(c) = k.code {
+                        if k.modifiers.contains(KeyModifiers::CONTROL)
+                            && (c == 'l' || c == 'L')
+                            && state.selected_field == HostFormState::IDENTITY_FIELD
+                        {
+                            state.open_identity_picker();
+                            continue;
+                        }
+                    }
+
                     match k.code {
                         KeyCode::Esc => break,
                         KeyCode::Tab | KeyCode::Down => state.next_field(),

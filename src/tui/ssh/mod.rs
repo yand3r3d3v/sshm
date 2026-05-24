@@ -7,3 +7,4 @@ pub mod toast;
 pub mod portforward;
 pub mod folder_form_state;
 pub mod host_form_state;
+pub mod keygen_form_state;
